@@ -22,23 +22,41 @@ body { margin: 0; font-family: Arial; }
 
 #left {
   display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.btn-col {
-  display: flex;
-  flex-direction: column;
+/* STATS */
+.bar {
+  width: 50px;
+  height: 6px;
+  background: #333;
+  margin-top: 2px;
+}
+
+.bar-inner {
+  height: 100%;
+}
+
+.hp { background: red; }
+.ap { background: yellow; }
+
+/* BUTTONS */
+.btn-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 120px);
   gap: 5px;
 }
 
-.btn-col button {
-  width: 120px;
+button {
+  background: #333;
+  color: white;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
 }
 
-#stats {
-  margin-bottom: 10px;
-}
-
+/* LOG */
 #log {
   width: 300px;
   height: 140px;
@@ -49,6 +67,7 @@ body { margin: 0; font-family: Arial; }
   border: 1px solid #555;
 }
 
+/* INVENTORY */
 #inventory {
   display: grid;
   grid-template-columns: repeat(4, 70px);
@@ -72,14 +91,6 @@ body { margin: 0; font-family: Arial; }
   width: 20%;
   height: 20%;
 }
-
-button {
-  background: #333;
-  color: white;
-  border: none;
-  padding: 6px;
-  cursor: pointer;
-}
 </style>
 </head>
 
@@ -91,26 +102,33 @@ button {
 
   <div id="left">
 
-    <div>
-      <div id="stats">HP:100<br>AP:100</div>
-
-      <div class="btn-col">
-        <button>Журнал</button>
-        <button>Мапа</button>
-        <button>...</button>
+    <!-- STATS -->
+    <div id="stats">
+      <div>
+        HP: <span id="hpText"></span>
+        <div class="bar"><div id="hpBar" class="bar-inner hp"></div></div>
+      </div>
+      <div>
+        AP: <span id="apText"></span>
+        <div class="bar"><div id="apBar" class="bar-inner ap"></div></div>
       </div>
     </div>
 
-    <div class="btn-col">
+    <!-- BUTTONS -->
+    <div class="btn-grid">
+      <button>Журнал</button>
       <button onclick="actionLook()">👀 Роздивитися</button>
+
+      <button>Мапа</button>
       <button onclick="actionSearch()">🔍 Шукати</button>
+
+      <button>...</button>
       <button onclick="actionRest()">💤 Відпочити</button>
     </div>
 
   </div>
 
   <div id="log"></div>
-
   <div id="inventory"></div>
 
 </div>
@@ -118,6 +136,16 @@ button {
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
+
+// --- CITIES (БАГАТО) ---
+const cities = [
+[50.45,30.52],[49.84,24.03],[48.92,24.71],[46.48,30.72],[49.99,36.23],
+[48.46,35.05],[47.84,35.14],[46.97,31.99],[50.75,25.33],[49.55,25.59],
+[48.62,22.30],[48.51,32.26],[49.42,26.98],[50.62,26.25],[50.91,34.80],
+[49.23,28.48],[49.44,32.06],[49.55,34.59],[50.74,25.32],[48.29,25.94],
+[47.91,33.39],[47.10,37.54],[48.72,37.53],[50.25,28.66],[51.50,31.29],
+[49.07,33.41],[49.66,36.36],[49.38,31.18],[48.15,23.03]
+];
 
 // --- CONFIG ---
 const ITEM_IMAGES = {
@@ -139,11 +167,7 @@ const POI_TYPES = [
 const items = Object.keys(ITEM_IMAGES);
 
 // --- STATE ---
-let state = {
-  hp:100,
-  ap:100,
-  inventory:new Array(8).fill(null)
-};
+let state = { hp:100, ap:100, inventory:new Array(8).fill(null) };
 
 let visited = {};
 let poiList = [];
@@ -153,10 +177,9 @@ let isMoving = false;
 let draggedIndex = null;
 
 // --- MAP ---
-const cities=[[50.45,30.52],[49.84,24.03],[48.92,24.71]];
 const start=cities[Math.floor(Math.random()*cities.length)];
-
 const map=L.map('map').setView(start,13);
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 let playerMarker=L.circleMarker(start,{radius:8,color:'#aaa'}).addTo(map);
@@ -164,19 +187,23 @@ let playerMarker=L.circleMarker(start,{radius:8,color:'#aaa'}).addTo(map);
 // --- UI ---
 const logEl=document.getElementById('log');
 const inventoryEl=document.getElementById('inventory');
-const statsEl=document.getElementById('stats');
 
 function log(msg){
   const d=document.createElement('div');
   d.innerText="> "+msg;
   logEl.prepend(d);
-  if(logEl.children.length>10) logEl.removeChild(logEl.lastChild);
 }
 
+// --- STATS ---
 function updateStats(){
-  state.ap=Math.max(0,Math.min(100,Math.round(state.ap)));
-  state.hp=Math.max(0,Math.min(100,Math.round(state.hp)));
-  statsEl.innerHTML=`HP:${state.hp}<br>AP:${state.ap}`;
+  state.hp=Math.max(0,Math.min(100,state.hp));
+  state.ap=Math.max(0,Math.min(100,state.ap));
+
+  document.getElementById('hpText').innerText = `${Math.round(state.hp)}/100`;
+  document.getElementById('apText').innerText = `${Math.round(state.ap)}/100`;
+
+  document.getElementById('hpBar').style.width = (state.hp/100*50)+"px";
+  document.getElementById('apBar').style.width = (state.ap/100*50)+"px";
 }
 
 // --- INVENTORY ---
@@ -190,10 +217,8 @@ function renderInventory(){
     slot.ondragover=(e)=>e.preventDefault();
     slot.ondrop=()=>{
       if(draggedIndex===null)return;
-
       [state.inventory[i], state.inventory[draggedIndex]] =
       [state.inventory[draggedIndex], state.inventory[i]];
-
       renderInventory();
     };
 
@@ -237,7 +262,6 @@ function useItem(item,i){
   if(item==="Бинт") state.hp+=25;
 
   state.inventory[i]=null;
-
   updateStats();
   renderInventory();
 }
@@ -301,8 +325,6 @@ function actionSearch(){
 
 // --- REST ---
 function actionRest(){
-  log("Відпочинок...");
-
   let t=0;
   const int=setInterval(()=>{
     state.ap+=100/180;
@@ -311,7 +333,6 @@ function actionRest(){
     if(state.ap>=100||t>=180){
       state.ap=100;
       clearInterval(int);
-      log("AP відновлено");
     }
 
     updateStats();
@@ -367,7 +388,6 @@ function move(coords){
 
     if(state.ap<=0){
       state.ap=0;
-      log("Ти виснажився");
       isMoving=false;
       updateStats();
       return;
