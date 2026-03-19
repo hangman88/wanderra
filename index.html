@@ -385,7 +385,7 @@ async function loadBuildings(lat, lon){
 
 function nearPlayer(lat,lng){
   const p=playerMarker.getLatLng();
-  return distance(p,{lat,lng}) < 80;
+  return distance(p,{lat,lng}) < 150;
 }
 
 function mapBuilding(tags){
