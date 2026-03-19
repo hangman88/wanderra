@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<title>Geo Game</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+<style>
+body { margin: 0; font-family: Arial; }
+#map { height: 70vh; }
+
+.leaflet-container { cursor: crosshair !important; }
+
+#hud {
+  display: flex;
+  justify-content: space-between;
+  background: #111;
+  color: #eee;
+  padding: 10px;
+}
+
+#left {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.btn-col button {
+  width: 120px;
+}
+
+#stats {
+  margin-bottom: 10px;
+}
+
+#log {
+  width: 300px;
+  height: 140px;
+  overflow-y: auto;
+  background: black;
+  padding: 5px;
+  font-size: 12px;
+  border: 1px solid #555;
+}
+
+#inventory {
+  display: grid;
+  grid-template-columns: repeat(4, 70px);
+  gap: 10px;
+}
+
+.slot {
+  width: 70px;
+  height: 70px;
+  background: #444;
+  border: 1px solid #888;
+  position: relative;
+}
+
+.item { width: 100%; height: 100%; }
+
+.delete-btn {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 20%;
+  height: 20%;
+}
+
+button {
+  background: #333;
+  color: white;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<div id="hud">
+
+  <div id="left">
+
+    <div>
+      <div id="stats">HP:100<br>AP:100</div>
+
+      <div class="btn-col">
+        <button>Журнал</button>
+        <button>Мапа</button>
+        <button>...</button>
+      </div>
+    </div>
+
+    <div class="btn-col">
+      <button onclick="actionLook()">👀 Роздивитися</button>
+      <button onclick="actionSearch()">🔍 Шукати</button>
+      <button onclick="actionRest()">💤 Відпочити</button>
+    </div>
+
+  </div>
+
+  <div id="log"></div>
+
+  <div id="inventory"></div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+// --- CONFIG ---
+const ITEM_IMAGES = {
+  "Лом":"lom.jpg","Ключ":"key.jpg","Фляга":"flask.jpg",
+  "Сухар":"sukhar.jpg","Ніж":"knife.jpg","Бинт":"bandage.jpg",
+  "Монета":"coin.jpg","Батарейка":"battery.jpg"
+};
+
+const CONSUMABLES = ["Фляга","Сухар","Бинт"];
+
+const POI_TYPES = [
+  {name:"Дом", img:"house.png"},
+  {name:"Руїна", img:"ruin.png"},
+  {name:"Склад", img:"warehouse.png"},
+  {name:"Коробка", img:"box.png"},
+  {name:"Смітник", img:"trash.png"}
+];
+
+const items = Object.keys(ITEM_IMAGES);
+
+// --- STATE ---
+let state = {
+  hp:100,
+  ap:100,
+  inventory:new Array(8).fill(null)
+};
+
+let visited = {};
+let poiList = [];
+let poiMarkers = [];
+let routeHistory = [];
+let isMoving = false;
+let draggedIndex = null;
+
+// --- MAP ---
+const cities=[[50.45,30.52],[49.84,24.03],[48.92,24.71]];
+const start=cities[Math.floor(Math.random()*cities.length)];
+
+const map=L.map('map').setView(start,13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let playerMarker=L.circleMarker(start,{radius:8,color:'#aaa'}).addTo(map);
+
+// --- UI ---
+const logEl=document.getElementById('log');
+const inventoryEl=document.getElementById('inventory');
+const statsEl=document.getElementById('stats');
+
+function log(msg){
+  const d=document.createElement('div');
+  d.innerText="> "+msg;
+  logEl.prepend(d);
+  if(logEl.children.length>10) logEl.removeChild(logEl.lastChild);
+}
+
+function updateStats(){
+  state.ap=Math.max(0,Math.min(100,Math.round(state.ap)));
+  state.hp=Math.max(0,Math.min(100,Math.round(state.hp)));
+  statsEl.innerHTML=`HP:${state.hp}<br>AP:${state.ap}`;
+}
+
+// --- INVENTORY ---
+function renderInventory(){
+  inventoryEl.innerHTML="";
+
+  state.inventory.forEach((item,i)=>{
+    const slot=document.createElement('div');
+    slot.className='slot';
+
+    slot.ondragover=(e)=>e.preventDefault();
+    slot.ondrop=()=>{
+      if(draggedIndex===null)return;
+
+      [state.inventory[i], state.inventory[draggedIndex]] =
+      [state.inventory[draggedIndex], state.inventory[i]];
+
+      renderInventory();
+    };
+
+    if(item){
+      const img=document.createElement('img');
+      img.src=`/images/items/${ITEM_IMAGES[item]}`;
+      img.className='item';
+      img.title=item;
+
+      img.draggable=true;
+      img.ondragstart=()=>draggedIndex=i;
+      img.ondragend=()=>draggedIndex=null;
+
+      img.onclick=()=>useItem(item,i);
+
+      const del=document.createElement('img');
+      del.src="/images/UI/cross.jpg";
+      del.className="delete-btn";
+      del.onclick=(e)=>{
+        e.stopPropagation();
+        state.inventory[i]=null;
+        renderInventory();
+      };
+
+      slot.appendChild(img);
+      slot.appendChild(del);
+    }
+
+    inventoryEl.appendChild(slot);
+  });
+}
+
+function useItem(item,i){
+  if(!CONSUMABLES.includes(item)){
+    log(item+" не можна використати");
+    return;
+  }
+
+  if(item==="Фляга") state.ap+=5;
+  if(item==="Сухар") state.ap+=3;
+  if(item==="Бинт") state.hp+=25;
+
+  state.inventory[i]=null;
+
+  updateStats();
+  renderInventory();
+}
+
+// --- POI ---
+function actionLook(){
+  const p=playerMarker.getLatLng();
+  const key=`${p.lat.toFixed(3)}_${p.lng.toFixed(3)}`;
+
+  if(visited[key]?.look){
+    log("Тут вже дивилися");
+    return;
+  }
+
+  visited[key]=visited[key]||{};
+  visited[key].look=true;
+
+  const count=Math.floor(Math.random()*3)+1;
+
+  for(let i=0;i<count;i++){
+    const t=POI_TYPES[Math.floor(Math.random()*POI_TYPES.length)];
+
+    const lat=p.lat+(Math.random()-0.5)*0.002;
+    const lng=p.lng+(Math.random()-0.5)*0.002;
+
+    const m=L.marker([lat,lng],{
+      icon:L.icon({iconUrl:`/images/poi/${t.img}`,iconSize:[32,32]})
+    }).addTo(map);
+
+    poiMarkers.push(m);
+    poiList.push({name:t.name,used:false});
+  }
+
+  log("Знайдено місць: "+count);
+}
+
+function actionSearch(){
+  const poi=poiList.find(p=>!p.used);
+
+  if(!poi){
+    log("Нема що обшукувати");
+    return;
+  }
+
+  poi.used=true;
+
+  if(Math.random()<0.7){
+    const item=items[Math.floor(Math.random()*items.length)];
+    const i=state.inventory.findIndex(x=>x===null);
+
+    if(i!==-1){
+      state.inventory[i]=item;
+      log(`Обшукано ${poi.name}, знайдено: ${item}`);
+    }
+  } else {
+    log(`Обшукано ${poi.name}, нічого`);
+  }
+
+  renderInventory();
+}
+
+// --- REST ---
+function actionRest(){
+  log("Відпочинок...");
+
+  let t=0;
+  const int=setInterval(()=>{
+    state.ap+=100/180;
+    t++;
+
+    if(state.ap>=100||t>=180){
+      state.ap=100;
+      clearInterval(int);
+      log("AP відновлено");
+    }
+
+    updateStats();
+  },1000);
+}
+
+// --- ROUTE ---
+async function getRoute(from,to){
+  const res=await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`);
+  const data=await res.json();
+  return data.routes[0];
+}
+
+function drawRoute(route){
+  const coords=route.geometry.coordinates.map(c=>[c[1],c[0]]);
+  routeHistory.push(coords);
+
+  routeHistory.forEach((path,i)=>{
+    L.polyline(path,{
+      color:i===routeHistory.length-1?'yellow':'red',
+      weight:i===routeHistory.length-1?6:3,
+      opacity:i===routeHistory.length-1?1:0.3
+    }).addTo(map);
+  });
+
+  return coords;
+}
+
+function distance(a,b){
+  const R=6371000;
+  const dLat=(b.lat-a.lat)*Math.PI/180;
+  const dLng=(b.lng-a.lng)*Math.PI/180;
+  const x=dLng*Math.cos((a.lat+b.lat)/2*Math.PI/180);
+  return Math.sqrt(dLat*dLat+x*x)*R;
+}
+
+function move(coords){
+  if(isMoving||state.ap<=0)return;
+
+  isMoving=true;
+  let i=0;
+
+  function step(){
+    if(i>=coords.length-1){isMoving=false;return;}
+
+    const a={lat:coords[i][0],lng:coords[i][1]};
+    const b={lat:coords[i+1][0],lng:coords[i+1][1]};
+
+    const dist=distance(a,b);
+    const time=(dist/1000)*7000;
+
+    state.ap -= (dist/1000)*10;
+
+    if(state.ap<=0){
+      state.ap=0;
+      log("Ти виснажився");
+      isMoving=false;
+      updateStats();
+      return;
+    }
+
+    playerMarker.setLatLng(a);
+    i++;
+
+    updateStats();
+    setTimeout(step,time);
+  }
+
+  step();
+}
+
+// --- CLICK ---
+map.on('click', async function(e){
+  if(isMoving)return;
+
+  const from=playerMarker.getLatLng();
+  const to={lat:e.latlng.lat,lng:e.latlng.lng};
+
+  const route=await getRoute(from,to);
+  const coords=drawRoute(route);
+
+  move(coords);
+});
+
+// INIT
+updateStats();
+renderInventory();
+log("Початок гри");
+
+</script>
+</body>
+</html>
