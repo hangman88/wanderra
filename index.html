@@ -224,7 +224,7 @@ function renderInventory(){
 
     if(item){
       const img=document.createElement('img');
-      img.src=`/images/items/${ITEM_IMAGES[item]}`;
+      img.src=`images/items/${ITEM_IMAGES[item]}`;
       img.className='item';
       img.title=item;
 
@@ -235,7 +235,7 @@ function renderInventory(){
       img.onclick=()=>useItem(item,i);
 
       const del=document.createElement('img');
-      del.src="/images/UI/cross.jpg";
+      del.src="images/UI/cross.jpg";
       del.className="delete-btn";
       del.onclick=(e)=>{
         e.stopPropagation();
@@ -288,7 +288,7 @@ function actionLook(){
     const lng=p.lng+(Math.random()-0.5)*0.002;
 
     const m=L.marker([lat,lng],{
-      icon:L.icon({iconUrl:`/images/poi/${t.img}`,iconSize:[32,32]})
+      icon:L.icon({iconUrl:`images/poi/${t.img}`,iconSize:[32,32]})
     }).addTo(map);
 
     poiMarkers.push(m);
