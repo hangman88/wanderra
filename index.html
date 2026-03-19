@@ -20,28 +20,13 @@ body { margin: 0; font-family: Arial; }
   padding: 10px;
 }
 
-#left {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+#left { display: flex; flex-direction: column; gap: 10px; }
 
-/* STATS */
-.bar {
-  width: 50px;
-  height: 6px;
-  background: #333;
-  margin-top: 2px;
-}
-
-.bar-inner {
-  height: 100%;
-}
-
+.bar { width: 50px; height: 6px; background: #333; }
+.bar-inner { height: 100%; }
 .hp { background: red; }
 .ap { background: yellow; }
 
-/* BUTTONS */
 .btn-grid {
   display: grid;
   grid-template-columns: repeat(2, 120px);
@@ -56,7 +41,6 @@ button {
   cursor: pointer;
 }
 
-/* LOG */
 #log {
   width: 300px;
   height: 140px;
@@ -67,7 +51,6 @@ button {
   border: 1px solid #555;
 }
 
-/* INVENTORY */
 #inventory {
   display: grid;
   grid-template-columns: repeat(4, 70px);
@@ -91,6 +74,32 @@ button {
   width: 20%;
   height: 20%;
 }
+
+/* LOOT */
+#lootScreen {
+  position: fixed;
+  top:0; left:0;
+  width:100%; height:100%;
+  background: rgba(0,0,0,0.85);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  color:white;
+  z-index:9999;
+}
+
+#lootBox {
+  background:#222;
+  padding:20px;
+  border:1px solid #555;
+  min-width:220px;
+}
+
+#lootResult {
+  margin-top:10px;
+  min-height:40px;
+}
 </style>
 </head>
 
@@ -102,25 +111,22 @@ button {
 
   <div id="left">
 
-    <!-- STATS -->
-    <div id="stats">
-      <div>
-        HP: <span id="hpText"></span>
-        <div class="bar"><div id="hpBar" class="bar-inner hp"></div></div>
-      </div>
-      <div>
-        AP: <span id="apText"></span>
-        <div class="bar"><div id="apBar" class="bar-inner ap"></div></div>
-      </div>
+    <div>
+      HP: <span id="hpText"></span>
+      <div class="bar"><div id="hpBar" class="bar-inner hp"></div></div>
     </div>
 
-    <!-- BUTTONS -->
+    <div>
+      AP: <span id="apText"></span>
+      <div class="bar"><div id="apBar" class="bar-inner ap"></div></div>
+    </div>
+
     <div class="btn-grid">
       <button>Журнал</button>
       <button onclick="actionLook()">👀 Роздивитися</button>
 
       <button>Мапа</button>
-      <button onclick="actionSearch()">🔍 Шукати</button>
+      <button>...</button>
 
       <button>...</button>
       <button onclick="actionRest()">💤 Відпочити</button>
@@ -133,47 +139,52 @@ button {
 
 </div>
 
+<!-- LOOT -->
+<div id="lootScreen">
+  <div id="lootBox">
+    <h3 id="lootTitle"></h3>
+    <div id="lootActions"></div>
+    <div id="lootResult"></div>
+    <button onclick="closeLoot()">Вийти</button>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
 
-// --- CITIES (БАГАТО) ---
+// --- CITIES ---
 const cities = [
 [50.45,30.52],[49.84,24.03],[48.92,24.71],[46.48,30.72],[49.99,36.23],
 [48.46,35.05],[47.84,35.14],[46.97,31.99],[50.75,25.33],[49.55,25.59],
 [48.62,22.30],[48.51,32.26],[49.42,26.98],[50.62,26.25],[50.91,34.80],
-[49.23,28.48],[49.44,32.06],[49.55,34.59],[50.74,25.32],[48.29,25.94],
-[47.91,33.39],[47.10,37.54],[48.72,37.53],[50.25,28.66],[51.50,31.29],
-[49.07,33.41],[49.66,36.36],[49.38,31.18],[48.15,23.03]
+[49.23,28.48],[49.44,32.06],[49.55,34.59],[48.29,25.94],[47.91,33.39]
 ];
 
 // --- CONFIG ---
 const ITEM_IMAGES = {
   "Лом":"lom.jpg","Ключ":"key.jpg","Фляга":"flask.jpg",
-  "Сухар":"sukhar.jpg","Ніж":"knife.jpg","Бинт":"bandage.jpg",
-  "Монета":"coin.jpg","Батарейка":"battery.jpg"
+  "Сухар":"sukhar.jpg","Ніж":"knife.jpg","Бинт":"bandage.jpg"
 };
 
 const CONSUMABLES = ["Фляга","Сухар","Бинт"];
-
-const POI_TYPES = [
-  {name:"Дом", img:"house.png"},
-  {name:"Руїна", img:"ruin.png"},
-  {name:"Склад", img:"warehouse.png"},
-  {name:"Коробка", img:"box.png"},
-  {name:"Смітник", img:"trash.png"}
-];
-
 const items = Object.keys(ITEM_IMAGES);
+
+const POI_TYPES = {
+  house: {name:"Дім", img:"house.png"},
+  warehouse: {name:"Склад", img:"warehouse.png"}
+};
 
 // --- STATE ---
 let state = { hp:100, ap:100, inventory:new Array(8).fill(null) };
 
 let visited = {};
 let poiList = [];
-let poiMarkers = [];
 let routeHistory = [];
+let currentPOI = null;
+
 let isMoving = false;
+let isResting = false;
 let draggedIndex = null;
 
 // --- MAP ---
@@ -184,10 +195,8 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 let playerMarker=L.circleMarker(start,{radius:8,color:'#aaa'}).addTo(map);
 
-// --- UI ---
+// --- LOG ---
 const logEl=document.getElementById('log');
-const inventoryEl=document.getElementById('inventory');
-
 function log(msg){
   const d=document.createElement('div');
   d.innerText="> "+msg;
@@ -196,17 +205,15 @@ function log(msg){
 
 // --- STATS ---
 function updateStats(){
-  state.hp=Math.max(0,Math.min(100,state.hp));
-  state.ap=Math.max(0,Math.min(100,state.ap));
-
-  document.getElementById('hpText').innerText = `${Math.round(state.hp)}/100`;
-  document.getElementById('apText').innerText = `${Math.round(state.ap)}/100`;
-
-  document.getElementById('hpBar').style.width = (state.hp/100*50)+"px";
-  document.getElementById('apBar').style.width = (state.ap/100*50)+"px";
+  hpText.innerText = `${Math.round(state.hp)}/100`;
+  apText.innerText = `${Math.round(state.ap)}/100`;
+  hpBar.style.width = (state.hp/100*50)+"px";
+  apBar.style.width = (state.ap/100*50)+"px";
 }
 
 // --- INVENTORY ---
+const inventoryEl=document.getElementById('inventory');
+
 function renderInventory(){
   inventoryEl.innerHTML="";
 
@@ -226,7 +233,6 @@ function renderInventory(){
       const img=document.createElement('img');
       img.src=`images/items/${ITEM_IMAGES[item]}`;
       img.className='item';
-      img.title=item;
 
       img.draggable=true;
       img.ondragstart=()=>draggedIndex=i;
@@ -252,10 +258,7 @@ function renderInventory(){
 }
 
 function useItem(item,i){
-  if(!CONSUMABLES.includes(item)){
-    log(item+" не можна використати");
-    return;
-  }
+  if(!CONSUMABLES.includes(item)){ log("Не можна"); return; }
 
   if(item==="Фляга") state.ap+=5;
   if(item==="Сухар") state.ap+=3;
@@ -266,80 +269,7 @@ function useItem(item,i){
   renderInventory();
 }
 
-// --- POI ---
-function actionLook(){
-  const p=playerMarker.getLatLng();
-  const key=`${p.lat.toFixed(3)}_${p.lng.toFixed(3)}`;
-
-  if(visited[key]?.look){
-    log("Тут вже дивилися");
-    return;
-  }
-
-  visited[key]=visited[key]||{};
-  visited[key].look=true;
-
-  const count=Math.floor(Math.random()*3)+1;
-
-  for(let i=0;i<count;i++){
-    const t=POI_TYPES[Math.floor(Math.random()*POI_TYPES.length)];
-
-    const lat=p.lat+(Math.random()-0.5)*0.002;
-    const lng=p.lng+(Math.random()-0.5)*0.002;
-
-    const m=L.marker([lat,lng],{
-      icon:L.icon({iconUrl:`images/poi/${t.img}`,iconSize:[32,32]})
-    }).addTo(map);
-
-    poiMarkers.push(m);
-    poiList.push({name:t.name,used:false});
-  }
-
-  log("Знайдено місць: "+count);
-}
-
-function actionSearch(){
-  const poi=poiList.find(p=>!p.used);
-
-  if(!poi){
-    log("Нема що обшукувати");
-    return;
-  }
-
-  poi.used=true;
-
-  if(Math.random()<0.7){
-    const item=items[Math.floor(Math.random()*items.length)];
-    const i=state.inventory.findIndex(x=>x===null);
-
-    if(i!==-1){
-      state.inventory[i]=item;
-      log(`Обшукано ${poi.name}, знайдено: ${item}`);
-    }
-  } else {
-    log(`Обшукано ${poi.name}, нічого`);
-  }
-
-  renderInventory();
-}
-
-// --- REST ---
-function actionRest(){
-  let t=0;
-  const int=setInterval(()=>{
-    state.ap+=100/180;
-    t++;
-
-    if(state.ap>=100||t>=180){
-      state.ap=100;
-      clearInterval(int);
-    }
-
-    updateStats();
-  },1000);
-}
-
-// --- ROUTE ---
+// --- ROUTE (НЕ ЧІПАЛИ) ---
 async function getRoute(from,to){
   const res=await fetch(`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`);
   const data=await res.json();
@@ -352,7 +282,7 @@ function drawRoute(route){
 
   routeHistory.forEach((path,i)=>{
     L.polyline(path,{
-      color:i===routeHistory.length-1?'yellow':'red',
+      color:i===routeHistory.length-1?'green':'red',
       weight:i===routeHistory.length-1?6:3,
       opacity:i===routeHistory.length-1?1:0.3
     }).addTo(map);
@@ -370,7 +300,7 @@ function distance(a,b){
 }
 
 function move(coords){
-  if(isMoving||state.ap<=0)return;
+  if(isMoving||state.ap<=0||isResting)return;
 
   isMoving=true;
   let i=0;
@@ -386,13 +316,6 @@ function move(coords){
 
     state.ap -= (dist/1000)*10;
 
-    if(state.ap<=0){
-      state.ap=0;
-      isMoving=false;
-      updateStats();
-      return;
-    }
-
     playerMarker.setLatLng(a);
     i++;
 
@@ -403,9 +326,11 @@ function move(coords){
   step();
 }
 
-// --- CLICK ---
 map.on('click', async function(e){
-  if(isMoving)return;
+  if(isMoving || isResting){
+    log(isMoving ? "Ти рухаєшся" : "Ви відпочиваєте");
+    return;
+  }
 
   const from=playerMarker.getLatLng();
   const to={lat:e.latlng.lat,lng:e.latlng.lng};
@@ -416,10 +341,199 @@ map.on('click', async function(e){
   move(coords);
 });
 
+// --- REST ---
+function actionRest(){
+  if(isMoving){ log("Ти рухаєшся"); return; }
+  if(isResting){ log("Ви відпочиваєте"); return; }
+
+  isResting=true;
+  log("Ви відпочиваєте");
+
+  let t=0;
+  const int=setInterval(()=>{
+    state.ap+=100/120;
+    t++;
+
+    if(state.ap>=100||t>=120){
+      state.ap=100;
+      clearInterval(int);
+      isResting=false;
+      log("Ви відновили сили");
+    }
+
+    updateStats();
+  },1000);
+}
+
+// --- OSM ---
+async function loadBuildings(lat, lon){
+  const query = `
+  [out:json];
+  (
+    node["building"](around:120,${lat},${lon});
+    way["building"](around:120,${lat},${lon});
+  );
+  out center;
+  `;
+  const res = await fetch("https://overpass-api.de/api/interpreter", {
+    method:"POST",
+    body:query
+  });
+  const data = await res.json();
+  return data.elements;
+}
+
+function nearPlayer(lat,lng){
+  const p=playerMarker.getLatLng();
+  return distance(p,{lat,lng}) < 80;
+}
+
+function mapBuilding(tags){
+  if(tags.building==="warehouse" || tags.building==="industrial")
+    return POI_TYPES.warehouse;
+  return POI_TYPES.house;
+}
+
+// --- LOOK ---
+async function actionLook(){
+  if(isMoving){ log("Ти рухаєшся"); return; }
+  if(isResting){ log("Ви відпочиваєте"); return; }
+
+  const p=playerMarker.getLatLng();
+  const key=`${p.lat.toFixed(3)}_${p.lng.toFixed(3)}`;
+
+  if(visited[key]){
+    log("Ви вже нічого нового не побачите");
+    return;
+  }
+
+  visited[key]=true;
+
+  log("Ви оглядаєтеся навколо...");
+
+  const buildings = await loadBuildings(p.lat,p.lng);
+
+  buildings.slice(0,6).forEach(b=>{
+    const lat = b.lat || b.center.lat;
+    const lon = b.lon || b.center.lon;
+
+    const type = mapBuilding(b.tags || {});
+    const poi = {name:type.name, used:false, lat, lon};
+
+    const m=L.marker([lat,lon],{
+      icon:L.icon({
+        iconUrl:`images/poi/${type.img}`,
+        iconSize:[32,32]
+      })
+    }).addTo(map);
+
+    m.on('click',()=>{
+      if(!nearPlayer(lat,lon)){
+        log("Занадто далеко");
+        return;
+      }
+
+      currentPOI = poi;
+      openLoot();
+    });
+
+    poiList.push(poi);
+  });
+
+  log("Знайдено місць: "+Math.min(buildings.length,6));
+}
+
+// --- LOOT ---
+function openLoot(){
+  document.getElementById('lootScreen').style.display="flex";
+  document.getElementById('lootTitle').innerText=currentPOI.name;
+  document.getElementById('lootResult').innerText="";
+  renderLootActions();
+}
+
+function renderLootActions(){
+  const el=document.getElementById('lootActions');
+  el.innerHTML="";
+
+  const btn=document.createElement('button');
+  btn.innerText="🔍 Обшукати";
+  btn.onclick=lootSearch;
+  el.appendChild(btn);
+}
+
+function closeLoot(){
+  document.getElementById('lootScreen').style.display="none";
+}
+
+function hasKnife(){
+  return state.inventory.includes("Ніж");
+}
+
+function lootSearch(){
+  const resEl=document.getElementById('lootResult');
+
+  if(currentPOI.used){
+    resEl.innerText="Тут вже порожньо";
+    return;
+  }
+
+  currentPOI.used=true;
+
+  if(Math.random()<0.3){
+    resEl.innerText="На вас напав агресивний безхатько!";
+
+    const el=document.getElementById('lootActions');
+    el.innerHTML="";
+
+    const run=document.createElement('button');
+    run.innerText="🏃 Втекти";
+    run.onclick=()=>{
+      if(Math.random()<0.5){
+        resEl.innerText="Ви втекли";
+      } else {
+        state.hp-=20;
+        updateStats();
+        resEl.innerText="Вас вкусили (-20 HP)";
+      }
+      renderLootActions();
+    };
+    el.appendChild(run);
+
+    if(hasKnife()){
+      const fight=document.createElement('button');
+      fight.innerText="🔪 Атакувати";
+      fight.onclick=()=>{
+        const i=state.inventory.indexOf("Ніж");
+        state.inventory[i]=null;
+        renderInventory();
+        resEl.innerText="Ви відбилися і втекли";
+        renderLootActions();
+      };
+      el.appendChild(fight);
+    }
+
+    return;
+  }
+
+  if(Math.random()<0.14){
+    const item=items[Math.floor(Math.random()*items.length)];
+    const i=state.inventory.findIndex(x=>x===null);
+
+    if(i!==-1){
+      state.inventory[i]=item;
+      resEl.innerText="Знайдено: "+item;
+    }
+  } else {
+    resEl.innerText="Нічого не знайдено";
+  }
+
+  renderInventory();
+}
+
 // INIT
 updateStats();
 renderInventory();
-log("Початок гри");
+log("Готово до гри");
 
 </script>
 </body>
